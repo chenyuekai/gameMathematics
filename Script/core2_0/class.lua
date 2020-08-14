@@ -1,0 +1,80 @@
+local function class(classname, super)  
+	local superType = type(super)  
+	local cls  
+	if superType ~= "function" and superType ~= "table" then  
+		superType = nil  
+		super = nil  
+	end  
+
+	if superType == "function" or (super and super.__ctype == 1) then  
+		-- inherited from native C++ Object  
+		cls = {}  
+
+		if superType == "table" then  
+			-- copy fields from super  
+			for k,v in pairs(super) do cls[k] = v end  
+			cls.__create = super.__create  
+			cls.super    = super  
+		else  
+			cls.__create = super  
+			cls.ctor = function() end  
+		end  
+
+		cls.__cname = classname  
+		cls.__ctype = 1  
+
+		function cls.new(...)  
+			local instance = cls.__create(...)  
+			-- copy fields from class to native object  
+			for k,v in pairs(cls) do instance[k] = v end  
+			instance.class = cls  
+			instance:ctor(...)  
+			if instance._init then
+				instance:_init(...)
+			end 
+			return instance  
+		end  
+
+	else  
+		-- inherited from Lua Object  
+		if super then  
+			cls = {}  
+			setmetatable(cls, {__index = super})  
+			cls.super = super  
+		else  
+			cls = {ctor = function() end} 
+		end  
+
+		cls.__cname = classname  
+		cls.__ctype = 2 -- lua  
+		cls.__index = cls  
+		cls.__newindex = function ( tb,key )
+			error("defind new member mush be in ctor method")
+		end
+		function cls.new(...)  
+			local instance = {}
+			local function create(cls,instance,...)
+				if cls.super then
+					create(cls.super,instance,...)
+				end 
+				local ctor = rawget(cls,"ctor")
+				if ctor then
+					ctor(instance,...)
+				end 
+			end
+			setmetatable(instance,{
+				__index = cls
+			}) 
+			instance.class = cls
+			create(cls,instance,...)
+			setmetatable(instance, cls)  
+			if instance._init then
+				instance:_init(...)
+			end 
+			return instance  
+		end  
+	end 
+	return cls  
+end 
+_G.class = class
+return class
